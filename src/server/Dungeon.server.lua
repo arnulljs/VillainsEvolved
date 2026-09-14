@@ -77,7 +77,9 @@ local dungeonFolder = ensureDungeonParts()
 
 local function getInfamy(player: Player): number
 	local data = (_G :: any).VillainsData
-	if not data then return 0 end
+	if not data then
+		return 0
+	end
 	return data.Get(player).Infamy
 end
 
@@ -134,12 +136,20 @@ local function spawnEnemies(player: Player, level: number, worldId: number): { M
 		prompt.MaxActivationDistance = 20
 		prompt.Parent = part
 		prompt.Triggered:Connect(function(triggeredBy: Player)
-			if triggeredBy ~= player then return end
+			if triggeredBy ~= player then
+				return
+			end
 			local run = runs[player]
-			if not run or not run.alive then return end
+			if not run or not run.alive then
+				return
+			end
 			local dmg = 0
 			local gppc = (_G :: any).GetPowerPerClick
-			if gppc then dmg = gppc(player) else dmg = getInfamy(player) end
+			if gppc then
+				dmg = gppc(player)
+			else
+				dmg = getInfamy(player)
+			end
 			-- clamp dmg to 1 min
 			dmg = math.max(1, dmg)
 			hum.Health -= dmg
@@ -149,7 +159,10 @@ local function spawnEnemies(player: Player, level: number, worldId: number): { M
 				local allDead = true
 				for _, em in run.enemies do
 					local eh = em:FindFirstChildOfClass("Humanoid") :: Humanoid?
-					if eh and eh.Health > 0 then allDead = false; break end
+					if eh and eh.Health > 0 then
+						allDead = false
+						break
+					end
 				end
 				if allDead then
 					run.unbankedHeists += heistsFor(level, worldId)
@@ -158,7 +171,9 @@ local function spawnEnemies(player: Player, level: number, worldId: number): { M
 					task.wait(0.5)
 					if runs[player] and runs[player].alive then
 						-- clear old enemies
-						for _, em in run.enemies do em:Destroy() end
+						for _, em in run.enemies do
+							em:Destroy()
+						end
 						run.enemies = spawnEnemies(player, run.level, worldId)
 					end
 				end
@@ -172,8 +187,14 @@ end
 
 local function clearRun(player: Player, forfeit: boolean)
 	local run = runs[player]
-	if not run then return end
-	for _, em in run.enemies do if em.Parent then em:Destroy() end end
+	if not run then
+		return
+	end
+	for _, em in run.enemies do
+		if em.Parent then
+			em:Destroy()
+		end
+	end
 	if forfeit then
 		-- lose unbanked
 	else
@@ -185,13 +206,19 @@ end
 local function teleportTo(player: Player, pos: Vector3)
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if hrp then hrp.CFrame = CFrame.new(pos + Vector3.new(math.random(-5, 5), 3, math.random(-5, 5))) end
+	if hrp then
+		hrp.CFrame = CFrame.new(pos + Vector3.new(math.random(-5, 5), 3, math.random(-5, 5)))
+	end
 end
 
 local function startRun(player: Player)
-	if runs[player] then clearRun(player, true) end
+	if runs[player] then
+		clearRun(player, true)
+	end
 	local data = (_G :: any).VillainsData
-	if not data then return end
+	if not data then
+		return
+	end
 	local d = data.Get(player)
 	local worldId = d.CurrentWorld
 	local run: Run = {
@@ -215,7 +242,9 @@ local function startRun(player: Player)
 					r.alive = false
 					clearRun(player, true)
 					task.wait(3)
-					if player.Parent then teleportTo(player, HUB_POS) end
+					if player.Parent then
+						teleportTo(player, HUB_POS)
+					end
 				end
 			end)
 		end
@@ -224,23 +253,35 @@ end
 
 enterEv.OnServerEvent:Connect(function(player: Player)
 	-- gate check: need some Infamy
-	if getInfamy(player) < 1 then return end
+	if getInfamy(player) < 1 then
+		return
+	end
 	startRun(player)
 end)
 
 cashOutEv.OnServerEvent:Connect(function(player: Player)
 	local run = runs[player]
-	if not run or not run.alive then return end
+	if not run or not run.alive then
+		return
+	end
 	-- must be near van (anti-exploit)
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if hrp and (hrp.Position - VAN_POS).Magnitude > 25 then return end
+	if hrp and (hrp.Position - VAN_POS).Magnitude > 25 then
+		return
+	end
 	local amount = run.unbankedHeists
-	if amount <= 0 then amount = heistsFor(run.level - 1, 1) end -- at least 1 if cleared 1
+	if amount <= 0 then
+		amount = heistsFor(run.level - 1, 1)
+	end -- at least 1 if cleared 1
 	-- 2x Heists pass
-	if player:GetAttribute("Pass_2x Heists") == true then amount *= 2 end
+	if player:GetAttribute("Pass_2x Heists") == true then
+		amount *= 2
+	end
 	local data = (_G :: any).VillainsData
-	if data then data.AddHeists(player, amount) end
+	if data then
+		data.AddHeists(player, amount)
+	end
 	clearRun(player, false)
 	teleportTo(player, HUB_POS)
 end)
@@ -255,10 +296,16 @@ if van then
 			local run = runs[plr]
 			if run and run.alive then
 				local amount = run.unbankedHeists
-				if amount == 0 then amount = 1 end
-				if plr:GetAttribute("Pass_2x Heists") == true then amount *= 2 end
+				if amount == 0 then
+					amount = 1
+				end
+				if plr:GetAttribute("Pass_2x Heists") == true then
+					amount *= 2
+				end
 				local data = (_G :: any).VillainsData
-				if data then data.AddHeists(plr, amount) end
+				if data then
+					data.AddHeists(plr, amount)
+				end
 				clearRun(plr, false)
 				teleportTo(plr, HUB_POS)
 			end
@@ -266,4 +313,6 @@ if van then
 	end
 end
 
-Players.PlayerRemoving:Connect(function(p) clearRun(p, true) end)
+Players.PlayerRemoving:Connect(function(p)
+	clearRun(p, true)
+end)

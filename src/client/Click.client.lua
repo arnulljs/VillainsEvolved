@@ -12,7 +12,9 @@ local function sendTrain()
 end
 
 UserInputService.InputBegan:Connect(function(input, gp)
-	if gp then return end
+	if gp then
+		return
+	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		sendTrain()
 	end

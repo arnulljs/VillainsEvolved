@@ -11,7 +11,7 @@ echo "  ok $(stat -c%s /tmp/VillainsEvolved.ci.rbxlx) bytes"
 echo "-- selene lint"
 "$SELENE" --config "$ROOT/selene.toml" "$ROOT/src" || true
 echo "-- stylua check"
-"$STYLUA" --check "$ROOT/src" || echo "  stylua needs format: run stylua src/"
+"$STYLUA" --check "$ROOT/src" --config-path "$ROOT/stylua.toml" || echo "  stylua needs format: run stylua src/ --config-path stylua.toml"
 echo "-- sourcemap"
 "$ROJO" sourcemap "$ROOT/default.project.json" -o /tmp/sourcemap.ci.json
 echo "  ok $(wc -c < /tmp/sourcemap.ci.json) bytes"

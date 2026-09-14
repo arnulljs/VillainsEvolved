@@ -90,10 +90,23 @@ local function makeBtn(name: string, text: string, color: Color3, cb: () -> ()):
 	return b
 end
 
-makeBtn("TrainBtn", "CLICK (+Infamy)", Color3.fromRGB(200, 40, 40), function() trainEv:FireServer() end)
-makeBtn("DungeonBtn", "Enter Heist", Color3.fromRGB(40, 120, 200), function() enterEv:FireServer() end)
-makeBtn("CashBtn", "Escape Van (Cash Out)", Color3.fromRGB(255, 220, 0), function() cashOutEv:FireServer() end)
-makeBtn("RebirthBtn", "Rebirth (" .. tostring(Config.Rebirth.HeistsRequired) .. " Heists)", Color3.fromRGB(120, 40, 180), function() rebirthEv:FireServer() end)
+makeBtn("TrainBtn", "CLICK (+Infamy)", Color3.fromRGB(200, 40, 40), function()
+	trainEv:FireServer()
+end)
+makeBtn("DungeonBtn", "Enter Heist", Color3.fromRGB(40, 120, 200), function()
+	enterEv:FireServer()
+end)
+makeBtn("CashBtn", "Escape Van (Cash Out)", Color3.fromRGB(255, 220, 0), function()
+	cashOutEv:FireServer()
+end)
+makeBtn(
+	"RebirthBtn",
+	"Rebirth (" .. tostring(Config.Rebirth.HeistsRequired) .. " Heists)",
+	Color3.fromRGB(120, 40, 180),
+	function()
+		rebirthEv:FireServer()
+	end
+)
 
 -- Villain shop scroll
 local shop = makeFrame("Shop", UDim2.fromScale(0.48, 0.78), UDim2.fromScale(0.01, 0.17), gui)
@@ -154,7 +167,8 @@ local function refreshShop(heists: number)
 		row.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 		row.LayoutOrder = idx
 		row.Parent = scroll
-		local rc = Instance.new("UICorner"); rc.Parent = row
+		local rc = Instance.new("UICorner")
+		rc.Parent = row
 		local tl = Instance.new("TextLabel")
 		tl.Size = UDim2.fromScale(0.55, 1)
 		tl.Position = UDim2.fromScale(0.02, 0)
@@ -163,8 +177,10 @@ local function refreshShop(heists: number)
 		tl.TextScaled = true
 		tl.TextColor3 = Color3.new(1, 1, 1)
 		tl.Font = Enum.Font.Gotham
-		local costStr = v.CostHeists and tostring(v.CostHeists) .. " Heists" or (v.Robux and tostring(v.Robux) .. " Robux" or "—")
-		local pStr = v.PowerPerClick and tostring(v.PowerPerClick) .. "/click" or (v.IsBestMultiplier and "+100% best" or "?")
+		local costStr = v.CostHeists and tostring(v.CostHeists) .. " Heists"
+			or (v.Robux and tostring(v.Robux) .. " Robux" or "—")
+		local pStr = v.PowerPerClick and tostring(v.PowerPerClick) .. "/click"
+			or (v.IsBestMultiplier and "+100% best" or "?")
 		tl.Text = string.format("%s [W%d] %s — %s", v.Name, v.World, pStr, costStr)
 		tl.Parent = row
 		local btn = Instance.new("TextButton")
@@ -174,24 +190,36 @@ local function refreshShop(heists: number)
 		btn.Font = Enum.Font.GothamBold
 		btn.TextColor3 = Color3.new(1, 1, 1)
 		btn.Parent = row
-		local bc = Instance.new("UICorner"); bc.Parent = btn
+		local bc = Instance.new("UICorner")
+		bc.Parent = btn
 		local isOwned = false
-		for _, n in ownedVillains do if n == v.Name then isOwned = true; break end end
+		for _, n in ownedVillains do
+			if n == v.Name then
+				isOwned = true
+				break
+			end
+		end
 		if isOwned then
 			btn.Text = "Equip"
 			btn.BackgroundColor3 = Color3.fromRGB(40, 160, 60)
-			btn.MouseButton1Click:Connect(function() equipEv:FireServer(v.Name) end)
+			btn.MouseButton1Click:Connect(function()
+				equipEv:FireServer(v.Name)
+			end)
 		elseif v.Robux then
 			btn.Text = "Buy R$"
 			btn.BackgroundColor3 = Color3.fromRGB(160, 140, 40)
-			btn.MouseButton1Click:Connect(function() buyVillainFn:InvokeServer(v.Name) end)
+			btn.MouseButton1Click:Connect(function()
+				buyVillainFn:InvokeServer(v.Name)
+			end)
 		else
 			local canAfford = heists >= (v.CostHeists or math.huge)
 			btn.Text = canAfford and "Buy" or "Need Heists"
 			btn.BackgroundColor3 = canAfford and Color3.fromRGB(40, 120, 200) or Color3.fromRGB(90, 90, 90)
 			btn.MouseButton1Click:Connect(function()
 				local ok, msg = buyVillainFn:InvokeServer(v.Name)
-				if not ok then warn(msg) end
+				if not ok then
+					warn(msg)
+				end
 			end)
 		end
 	end
@@ -208,7 +236,8 @@ local function refreshHenchShop()
 		row.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 		row.LayoutOrder = idx
 		row.Parent = henchScroll
-		local rc = Instance.new("UICorner"); rc.Parent = row
+		local rc = Instance.new("UICorner")
+		rc.Parent = row
 		local tl = Instance.new("TextLabel")
 		tl.Size = UDim2.fromScale(0.65, 1)
 		tl.Position = UDim2.fromScale(0.02, 0)
@@ -217,7 +246,9 @@ local function refreshHenchShop()
 		tl.TextScaled = true
 		tl.TextColor3 = Color3.new(1, 1, 1)
 		tl.Font = Enum.Font.Gotham
-		local costStr = egg.CostHeists and tostring(egg.CostHeists) .. " Heists" or egg.CostTokens and tostring(egg.CostTokens) .. " Tokens" or (egg.Robux and tostring(egg.Robux) .. " Robux" or "?")
+		local costStr = egg.CostHeists and tostring(egg.CostHeists) .. " Heists"
+			or egg.CostTokens and tostring(egg.CostTokens) .. " Tokens"
+			or (egg.Robux and tostring(egg.Robux) .. " Robux" or "?")
 		tl.Text = string.format("%s [W%d] — %s", egg.Name, egg.World, costStr)
 		tl.Parent = row
 		local btn = Instance.new("TextButton")
@@ -229,10 +260,15 @@ local function refreshHenchShop()
 		btn.BackgroundColor3 = Color3.fromRGB(200, 120, 40)
 		btn.TextColor3 = Color3.new(1, 1, 1)
 		btn.Parent = row
-		local bc = Instance.new("UICorner"); bc.Parent = btn
+		local bc = Instance.new("UICorner")
+		bc.Parent = btn
 		btn.MouseButton1Click:Connect(function()
 			local ok, res = buyHenchFn:InvokeServer(egg.Name)
-			if ok then print("Hatched " .. tostring(res)) else warn(res) end
+			if ok then
+				print("Hatched " .. tostring(res))
+			else
+				warn(res)
+			end
 		end)
 	end
 	task.wait()

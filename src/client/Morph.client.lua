@@ -11,9 +11,13 @@ local player = Players.LocalPlayer
 
 local function apply()
 	local char = player.Character
-	if not char then return end
+	if not char then
+		return
+	end
 	local villainName = player:GetAttribute("EquippedVillain") :: string?
-	if typeof(villainName) ~= "string" then villainName = "Goon" end
+	if typeof(villainName) ~= "string" then
+		villainName = "Goon"
+	end
 	local v = Config.GetVillainByName(villainName)
 	local pal = v and v.Palette or "Gray"
 	Morphs.ApplyToCharacter(char, villainName, pal)
@@ -24,4 +28,7 @@ player.CharacterAdded:Connect(function()
 	task.wait(1)
 	apply()
 end)
-if player.Character then task.wait(1); apply() end
+if player.Character then
+	task.wait(1)
+	apply()
+end

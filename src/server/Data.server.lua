@@ -48,7 +48,9 @@ end
 
 local function pushToClient(player: Player)
 	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-	if not remotes then return end
+	if not remotes then
+		return
+	end
 	local ev = remotes:FindFirstChild("DataUpdate") :: RemoteEvent?
 	if ev then
 		local d = getData(player)
@@ -57,7 +59,9 @@ local function pushToClient(player: Player)
 		for _, hName in d.EquippedHenchmen do
 			for _, egg in Config.HenchmenEggs do
 				for _, h in egg.Henchmen do
-					if h.Name == hName and h.Mult then mult *= h.Mult end
+					if h.Name == hName and h.Mult then
+						mult *= h.Mult
+					end
 					if h.Name == hName and h.IsBestPercent then
 						-- mystery henchmen: % better than best equipped
 						-- handled via server lookup of best mult elsewhere; here just apply placeholder
@@ -117,13 +121,21 @@ local function syncLeaderstats(player: Player)
 	local f = leaderstatsCache[player]
 	if f then
 		local iv = f:FindFirstChild("Infamy") :: IntValue?
-		if iv then iv.Value = math.floor(d.Infamy) end
+		if iv then
+			iv.Value = math.floor(d.Infamy)
+		end
 		local hv = f:FindFirstChild("Heists") :: IntValue?
-		if hv then hv.Value = math.floor(d.Heists) end
+		if hv then
+			hv.Value = math.floor(d.Heists)
+		end
 		local rv = f:FindFirstChild("Rebirths") :: IntValue?
-		if rv then rv.Value = d.Rebirths end
+		if rv then
+			rv.Value = d.Rebirths
+		end
 		local tv = f:FindFirstChild("Tokens") :: IntValue?
-		if tv then tv.Value = math.floor(d.Tokens) end
+		if tv then
+			tv.Value = math.floor(d.Tokens)
+		end
 	end
 	player:SetAttribute("Infamy", math.floor(d.Infamy))
 	player:SetAttribute("Heists", math.floor(d.Heists))
@@ -159,16 +171,24 @@ function Data.AddTokens(player: Player, amount: number)
 end
 function Data.OwnsVillain(player: Player, name: string): boolean
 	local d = getData(player)
-	for _, n in d.OwnedVillains do if n == name then return true end end
+	for _, n in d.OwnedVillains do
+		if n == name then
+			return true
+		end
+	end
 	return false
 end
 function Data.GiveVillain(player: Player, name: string)
 	local d = getData(player)
-	if not Data.OwnsVillain(player, name) then table.insert(d.OwnedVillains, name) end
+	if not Data.OwnsVillain(player, name) then
+		table.insert(d.OwnedVillains, name)
+	end
 	syncLeaderstats(player)
 end
 function Data.EquipVillain(player: Player, name: string): boolean
-	if not Data.OwnsVillain(player, name) then return false end
+	if not Data.OwnsVillain(player, name) then
+		return false
+	end
 	local d = getData(player)
 	d.EquippedVillain = name
 	syncLeaderstats(player)
@@ -189,7 +209,9 @@ Players.PlayerAdded:Connect(function(player)
 		data = saved :: SaveData
 		-- migration: ensure fields
 		for k, v in defaultData do
-			if (data :: any)[k] == nil then (data :: any)[k] = v end
+			if (data :: any)[k] == nil then
+				(data :: any)[k] = v
+			end
 		end
 	else
 		data = deepCopy(defaultData)
@@ -252,7 +274,9 @@ local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local rebirthEv = remotes:WaitForChild("Rebirth") :: RemoteEvent
 rebirthEv.OnServerEvent:Connect(function(player: Player)
 	local d = getData(player)
-	if d.Heists < Config.Rebirth.HeistsRequired or d.Infamy < Config.Rebirth.InfamyRequired then return end
+	if d.Heists < Config.Rebirth.HeistsRequired or d.Infamy < Config.Rebirth.InfamyRequired then
+		return
+	end
 	d.Rebirths += 1
 	d.Infamy = 0
 	-- keep Heists/Tokens but could reset Heists if you want harder: currently keep
@@ -262,7 +286,9 @@ end)
 
 local equipEv = remotes:WaitForChild("EquipVillain") :: RemoteEvent
 equipEv.OnServerEvent:Connect(function(player: Player, villainName: string)
-	if typeof(villainName) ~= "string" then return end
+	if typeof(villainName) ~= "string" then
+		return
+	end
 	local ok = Data.EquipVillain(player, villainName)
 	if ok then
 		local char = player.Character

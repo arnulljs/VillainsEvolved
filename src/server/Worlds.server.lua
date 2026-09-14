@@ -52,14 +52,20 @@ local function ensureWorldPads()
 			prox.Parent = pad
 			prox.Triggered:Connect(function(plr: Player)
 				local data = (_G :: any).VillainsData
-				if not data then return end
+				if not data then
+					return
+				end
 				local d = data.Get(plr)
-				if d.Heists < w.GateHeists or d.Infamy < w.GateInfamy then return end
+				if d.Heists < w.GateHeists or d.Infamy < w.GateInfamy then
+					return
+				end
 				d.CurrentWorld = w.Id
 				data.Set(plr, d)
 				local char = plr.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-				if hrp then hrp.CFrame = CFrame.new(WORLD_POSITIONS[w.Id]) end
+				if hrp then
+					hrp.CFrame = CFrame.new(WORLD_POSITIONS[w.Id])
+				end
 			end)
 		end
 	end

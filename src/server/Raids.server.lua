@@ -12,7 +12,9 @@ local raidEndsAt = 0
 
 local function ensureRaidBoard()
 	local folder = Workspace:FindFirstChild("Dungeon")
-	if not folder then return end
+	if not folder then
+		return
+	end
 	local board = folder:FindFirstChild("RaidBoard")
 	if not board then
 		board = Instance.new("Part")
@@ -61,7 +63,9 @@ local function startRaid()
 	if board then
 		local tl = board:FindFirstChild("SurfaceGui", true) :: SurfaceGui?
 		local label = tl and tl:FindFirstChild("Label") :: TextLabel?
-		if label then label.Text = "CITY RAMPAGE ACTIVE — Go!" end
+		if label then
+			label.Text = "CITY RAMPAGE ACTIVE — Go!"
+		end
 	end
 	-- give participants Tokens for stage clears — handled via Dungeon.server adding Tokens on cashout during raid
 	task.wait(600)
@@ -69,29 +73,31 @@ local function startRaid()
 	nextRaid = getNextRaidTime()
 end
 
-task.spawn(function()
-	while true do
-		task.wait(1)
-		local now = os.time()
-		if not raidActive and now >= nextRaid then
-			startRaid()
-		end
-		if board then
-			local label = board:FindFirstChild("SurfaceGui", true) and board.FindFirstChild(board:FindFirstChild("SurfaceGui", true) :: Instance, "Label") :: TextLabel?
-			-- fallback find
-			local sg = board:FindFirstChild("SurfaceGui") :: SurfaceGui?
-			local tl = sg and sg:FindFirstChild("Label") :: TextLabel?
-			if tl and not raidActive then
-				local remain = nextRaid - now
-				local m = math.floor(remain / 60)
-				local s = remain % 60
-				tl.Text = string.format("City Rampage in %02d:%02d (XX:30 hourly)", m, s)
+task
+	.spawn(function()
+		while true do
+			task.wait(1)
+			local now = os.time()
+			if not raidActive and now >= nextRaid then
+				startRaid()
+			end
+			if board then
+				local label = board:FindFirstChild("SurfaceGui", true)
+					and board.FindFirstChild(board:FindFirstChild("SurfaceGui", true) :: Instance, "Label") :: TextLabel?
+				-- fallback find
+				local sg = board:FindFirstChild("SurfaceGui") :: SurfaceGui?
+				local tl = sg and sg:FindFirstChild("Label") :: TextLabel?
+				if tl and not raidActive then
+					local remain = nextRaid - now
+					local m = math.floor(remain / 60)
+					local s = remain % 60
+					tl.Text = string.format("City Rampage in %02d:%02d (XX:30 hourly)", m, s)
+				end
 			end
 		end
-	end
-end)
-
--- Expose state for Dungeon to grant Tokens during raid
-(_G :: any).IsRaidActive = function(): boolean
+	end)
+	-- Expose state for Dungeon to grant Tokens during raid
+	(_G :: any)
+	.IsRaidActive = function(): boolean
 	return raidActive
 end
