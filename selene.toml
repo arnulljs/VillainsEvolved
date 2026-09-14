@@ -1,0 +1,10 @@
+std = "roblox"
+[rules]
+almost_swapped = "allow"
+divide_by_zero = "allow"
+ifs_same_cond = "warn"
+mismatched_arg_count = "warn"
+mixed_table = "allow"
+unscoped_variables = "deny"
+unused_variable = "warn"
+undefined_variable = "deny"
