@@ -1,314 +1,321 @@
 --!strict
--- Leaderstats + DataStore with pcall wrapper
--- ponytail: single store, JSON blob, OrderedDataStore for Heists leaderboard later
-
+-- Data management for Villains Evolved (Unlimited Infamy Growth, Grounded Leveling, and Rebirth)
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Format = require(ReplicatedStorage.Shared.Format)
+local Morphs = require(ReplicatedStorage.Shared.Morphs)
 
-local STORE_KEY = "VillainsEvolved_v1"
-local store = DataStoreService:GetDataStore(STORE_KEY)
+local STORE_KEY = "VillainsEvolved_Profile_v3"
+local profileStore = nil
+pcall(function()
+	profileStore = DataStoreService:GetDataStore(STORE_KEY)
+end)
 
-type SaveData = {
+export type PlayerProfile = {
 	Infamy: number,
-	Heists: number,
-	Tokens: number,
+	Loot: number,
+	Heat: number,
 	Rebirths: number,
+	Level: number,
+	LevelXp: number,
+	District: number,
+	HighestJob: number,
+	OwnedVillains: { [string]: boolean },
 	EquippedVillain: string,
-	OwnedVillains: { string },
+	Henchmen: { string },
 	EquippedHenchmen: { string },
-	OwnedHenchmen: { string },
-	CurrentWorld: number,
+	Items: { string },
+	EquippedItems: { string },
+	RedeemedCodes: { [string]: boolean },
+	PlaytimeSeconds: number,
+	LoginStreak: number,
+	LastLoginDay: number,
+	FirstPurchaseBonus: boolean,
+	Stats: {
+		TotalClicks: number,
+		TotalJobs: number,
+		JoinedAt: number,
+	},
 }
 
-local defaultData: SaveData = {
+local defaultProfile: PlayerProfile = {
 	Infamy = 0,
-	Heists = 0,
-	Tokens = 0,
+	Loot = 0,
+	Heat = 0,
 	Rebirths = 0,
-	EquippedVillain = "Goon",
-	OwnedVillains = { "Goon" },
-	OwnedHenchmen = {},
+	Level = 1,
+	LevelXp = 0,
+	District = 1,
+	HighestJob = 0,
+	OwnedVillains = { ["nobody"] = true },
+	EquippedVillain = "nobody",
+	Henchmen = {},
 	EquippedHenchmen = {},
-	CurrentWorld = 1,
+	Items = { "crowbar" },
+	EquippedItems = { "crowbar" },
+	RedeemedCodes = {},
+	PlaytimeSeconds = 0,
+	LoginStreak = 1,
+	LastLoginDay = 0,
+	FirstPurchaseBonus = false,
+	Stats = {
+		TotalClicks = 0,
+		TotalJobs = 0,
+		JoinedAt = 0,
+	},
 }
 
-local cache: { [Player]: SaveData } = {}
-local leaderstatsCache: { [Player]: Folder } = {}
+local sessionProfiles: { [Player]: PlayerProfile } = {}
 
 local function deepCopy<T>(t: T): T
 	return (game:GetService("HttpService"):JSONDecode(game:GetService("HttpService"):JSONEncode(t)) :: any) :: T
 end
 
-local function getData(player: Player): SaveData
-	return cache[player] or deepCopy(defaultData)
+local DataManager = {}
+
+function DataManager.Get(player: Player): PlayerProfile
+	return sessionProfiles[player] or deepCopy(defaultProfile)
 end
 
-local function pushToClient(player: Player)
+function DataManager.Set(player: Player, profile: PlayerProfile)
+	sessionProfiles[player] = profile
+	DataManager.PushToClient(player)
+	DataManager.UpdateLeaderstats(player)
+end
+
+function DataManager.PushToClient(player: Player)
 	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-	if not remotes then
-		return
+	if not remotes then return end
+	local dataEv = remotes:FindFirstChild("DataUpdate") :: RemoteEvent?
+	if not dataEv then return end
+
+	local p = DataManager.Get(player)
+	local maxLevel = Config.GetMaxLevel(p.Rebirths)
+	local displayLevel = p.Level or 1
+	local isMaxLevel = displayLevel >= maxLevel
+	local nextLevelXp = Config.GetXpForLevel(displayLevel)
+	local levelXp = p.LevelXp or 0
+	local rebirthMult = Config.Rebirth.multiplier(p.Rebirths)
+	local nextRebirthMult = Config.Rebirth.multiplier(p.Rebirths + 1)
+
+	dataEv:FireClient(player, {
+		Infamy = p.Infamy,
+		Loot = p.Loot,
+		Heat = p.Heat,
+		Rebirths = p.Rebirths,
+		District = p.District,
+		HighestJob = p.HighestJob,
+		OwnedVillains = p.OwnedVillains,
+		EquippedVillain = p.EquippedVillain,
+		Henchmen = p.Henchmen,
+		EquippedHenchmen = p.EquippedHenchmen,
+		Items = p.Items,
+		EquippedItems = p.EquippedItems,
+		Level = displayLevel,
+		ReqLevel = maxLevel,
+		LevelXp = levelXp,
+		NextLevelXp = nextLevelXp,
+		IsMaxLevel = isMaxLevel,
+		CanRebirth = isMaxLevel,
+		RebirthMult = rebirthMult,
+		NextRebirthMult = nextRebirthMult,
+		FirstPurchaseBonus = p.FirstPurchaseBonus,
+	})
+end
+
+function DataManager.UpdateLeaderstats(player: Player)
+	local leaderstats = player:FindFirstChild("leaderstats") :: Folder?
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+
+		local infamyVal = Instance.new("NumberValue")
+		infamyVal.Name = "Infamy"
+		infamyVal.Parent = leaderstats
+
+		local lootVal = Instance.new("NumberValue")
+		lootVal.Name = "Loot"
+		lootVal.Parent = leaderstats
+
+		local rapSheetVal = Instance.new("IntValue")
+		rapSheetVal.Name = "Rebirths"
+		rapSheetVal.Parent = leaderstats
+
+		local heatVal = Instance.new("NumberValue")
+		heatVal.Name = "Heat"
+		heatVal.Parent = leaderstats
 	end
-	local ev = remotes:FindFirstChild("DataUpdate") :: RemoteEvent?
-	if ev then
-		local d = getData(player)
-		-- compute henchmen mult
-		local mult = 1
-		for _, hName in d.EquippedHenchmen do
-			for _, egg in Config.HenchmenEggs do
-				for _, h in egg.Henchmen do
-					if h.Name == hName and h.Mult then
-						mult *= h.Mult
-					end
-					if h.Name == hName and h.IsBestPercent then
-						-- mystery henchmen: % better than best equipped
-						-- handled via server lookup of best mult elsewhere; here just apply placeholder
-						mult *= (1 + h.IsBestPercent / 100)
-					end
-				end
+
+	local p = DataManager.Get(player)
+	local inf = leaderstats:FindFirstChild("Infamy") :: NumberValue?
+	if inf then inf.Value = p.Infamy end
+	local lt = leaderstats:FindFirstChild("Loot") :: NumberValue?
+	if lt then lt.Value = p.Loot end
+	local rs = leaderstats:FindFirstChild("Rebirths") :: IntValue?
+	if rs then rs.Value = p.Rebirths end
+	local ht = leaderstats:FindFirstChild("Heat") :: NumberValue?
+	if ht then ht.Value = p.Heat end
+end
+
+-- Adds Infamy: UNLIMITED, never capped! Points feed experience bar to level up!
+function DataManager.AddInfamy(player: Player, amount: number): number
+	local p = DataManager.Get(player)
+	p.Infamy += amount
+
+	-- Points feed experience bar to level up (does not level up per click)
+	local maxLevel = Config.GetMaxLevel(p.Rebirths)
+	if p.Level < maxLevel then
+		p.LevelXp = (p.LevelXp or 0) + amount
+		local req = Config.GetXpForLevel(p.Level)
+		while p.LevelXp >= req and p.Level < maxLevel do
+			p.LevelXp -= req
+			p.Level += 1
+			req = Config.GetXpForLevel(p.Level)
+		end
+		if p.Level >= maxLevel then
+			p.LevelXp = 0
+		end
+	end
+
+	DataManager.Set(player, p)
+	return amount
+end
+
+function DataManager.AddLoot(player: Player, amount: number)
+	local p = DataManager.Get(player)
+	p.Loot += amount
+	DataManager.Set(player, p)
+end
+
+function DataManager.AddHeat(player: Player, amount: number)
+	local p = DataManager.Get(player)
+	p.Heat += amount
+	DataManager.Set(player, p)
+end
+
+function DataManager.OwnsVillain(player: Player, villainId: string): boolean
+	local p = DataManager.Get(player)
+	return p.OwnedVillains[villainId] == true
+end
+
+function DataManager.GiveVillain(player: Player, villainId: string)
+	local p = DataManager.Get(player)
+	p.OwnedVillains[villainId] = true
+	DataManager.Set(player, p)
+end
+
+function DataManager.EquipVillain(player: Player, villainId: string)
+	local p = DataManager.Get(player)
+	if p.OwnedVillains[villainId] then
+		p.EquippedVillain = villainId
+		DataManager.Set(player, p)
+
+		Morphs.ApplyMorph(player, villainId)
+
+		local v = Config.GetVillain(villainId)
+		local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+		local noticeEv = remotes and remotes:FindFirstChild("FloatingNotice") :: RemoteEvent?
+		if noticeEv and v then
+			noticeEv:FireClient(player, {
+				text = "EQUIPPED " .. v.name .. "! (+" .. Format.abbreviate(v.infamyPerClick) .. "/Click)",
+				color = Color3.fromRGB(80, 220, 255),
+			})
+		end
+	end
+end
+
+-- Rebirth: Resets power and level, raises multiplier by +2x, keeps villains/pets/items
+-- NO RESPAWN OR TELEPORT: Player remains right where they are!
+function DataManager.Rebirth(player: Player): (boolean, string)
+	local p = DataManager.Get(player)
+	local maxLevel = Config.GetMaxLevel(p.Rebirths)
+
+	if p.Level < maxLevel then
+		return false, string.format("Requires Level %d (Current: %d)", maxLevel, p.Level)
+	end
+
+	local keepRatio = 0.0
+	for _, hId in p.EquippedHenchmen do
+		if hId == "quantum_amoeba" then
+			keepRatio = 0.25
+			break
+		end
+	end
+
+	p.Infamy = math.floor(p.Infamy * keepRatio)
+	p.Level = 1
+	p.LevelXp = 0
+	p.Rebirths += 1
+	DataManager.Set(player, p)
+
+	return true, "Successfully Rebirthed!"
+end
+
+local function loadData(player: Player)
+	local key = "Player_" .. tostring(player.UserId)
+	local data = nil
+	if profileStore then
+		local success, result = pcall(function()
+			return profileStore:GetAsync(key)
+		end)
+		if success and result then
+			data = result
+		end
+	end
+
+	if not data then
+		data = deepCopy(defaultProfile)
+	else
+		for k, v in defaultProfile do
+			if (data :: any)[k] == nil then
+				(data :: any)[k] = deepCopy(v)
 			end
 		end
-		ev:FireClient(player, {
-			Infamy = d.Infamy,
-			Heists = d.Heists,
-			Tokens = d.Tokens,
-			Rebirths = d.Rebirths,
-			EquippedVillain = d.EquippedVillain,
-			OwnedVillains = d.OwnedVillains,
-			OwnedHenchmen = d.OwnedHenchmen,
-			EquippedHenchmen = d.EquippedHenchmen,
-			HenchmenMult = mult,
-			CurrentWorld = d.CurrentWorld,
-		})
 	end
+
+	sessionProfiles[player] = data
+	DataManager.UpdateLeaderstats(player)
+	DataManager.PushToClient(player)
+
+	task.defer(function()
+		task.wait(1)
+		DataManager.EquipVillain(player, data.EquippedVillain)
+	end)
 end
 
-local function setupLeaderstats(player: Player)
-	local d = getData(player)
-	local folder = Instance.new("Folder")
-	folder.Name = "leaderstats"
-	local infamy = Instance.new("IntValue")
-	infamy.Name = "Infamy"
-	infamy.Value = d.Infamy
-	infamy.Parent = folder
-	local heists = Instance.new("IntValue")
-	heists.Name = "Heists"
-	heists.Value = d.Heists
-	heists.Parent = folder
-	local rebirths = Instance.new("IntValue")
-	rebirths.Name = "Rebirths"
-	rebirths.Value = d.Rebirths
-	rebirths.Parent = folder
-	local tokens = Instance.new("IntValue")
-	tokens.Name = "Tokens"
-	tokens.Value = d.Tokens
-	tokens.Parent = folder
-	folder.Parent = player
-	leaderstatsCache[player] = folder
-
-	-- Replicated attributes for UI
-	player:SetAttribute("Infamy", d.Infamy)
-	player:SetAttribute("Heists", d.Heists)
-	player:SetAttribute("Tokens", d.Tokens)
-	player:SetAttribute("Rebirths", d.Rebirths)
-	player:SetAttribute("EquippedVillain", d.EquippedVillain)
+local function saveData(player: Player)
+	local p = sessionProfiles[player]
+	if not p or not profileStore then return end
+	local key = "Player_" .. tostring(player.UserId)
+	pcall(function()
+		profileStore:SetAsync(key, p)
+	end)
 end
-
-local function syncLeaderstats(player: Player)
-	local d = getData(player)
-	local f = leaderstatsCache[player]
-	if f then
-		local iv = f:FindFirstChild("Infamy") :: IntValue?
-		if iv then
-			iv.Value = math.floor(d.Infamy)
-		end
-		local hv = f:FindFirstChild("Heists") :: IntValue?
-		if hv then
-			hv.Value = math.floor(d.Heists)
-		end
-		local rv = f:FindFirstChild("Rebirths") :: IntValue?
-		if rv then
-			rv.Value = d.Rebirths
-		end
-		local tv = f:FindFirstChild("Tokens") :: IntValue?
-		if tv then
-			tv.Value = math.floor(d.Tokens)
-		end
-	end
-	player:SetAttribute("Infamy", math.floor(d.Infamy))
-	player:SetAttribute("Heists", math.floor(d.Heists))
-	player:SetAttribute("Tokens", math.floor(d.Tokens))
-	player:SetAttribute("Rebirths", d.Rebirths)
-	player:SetAttribute("EquippedVillain", d.EquippedVillain)
-	pushToClient(player)
-end
-
--- Public API for other server scripts
-local Data = {}
-function Data.Get(player: Player): SaveData
-	return getData(player)
-end
-function Data.Set(player: Player, newData: SaveData)
-	cache[player] = newData
-	syncLeaderstats(player)
-end
-function Data.AddInfamy(player: Player, amount: number)
-	local d = getData(player)
-	d.Infamy += amount
-	syncLeaderstats(player)
-end
-function Data.AddHeists(player: Player, amount: number)
-	local d = getData(player)
-	d.Heists += amount
-	syncLeaderstats(player)
-end
-function Data.AddTokens(player: Player, amount: number)
-	local d = getData(player)
-	d.Tokens += amount
-	syncLeaderstats(player)
-end
-function Data.OwnsVillain(player: Player, name: string): boolean
-	local d = getData(player)
-	for _, n in d.OwnedVillains do
-		if n == name then
-			return true
-		end
-	end
-	return false
-end
-function Data.GiveVillain(player: Player, name: string)
-	local d = getData(player)
-	if not Data.OwnsVillain(player, name) then
-		table.insert(d.OwnedVillains, name)
-	end
-	syncLeaderstats(player)
-end
-function Data.EquipVillain(player: Player, name: string): boolean
-	if not Data.OwnsVillain(player, name) then
-		return false
-	end
-	local d = getData(player)
-	d.EquippedVillain = name
-	syncLeaderstats(player)
-	-- trigger morph re-apply via attribute change (client listens)
-	return true
-end
-
--- expose globally for other server scripts via _G (ponytail: one require path would be cleaner but _G is shortest)
-_G.VillainsData = Data
 
 Players.PlayerAdded:Connect(function(player)
-	-- load with pcall
-	local ok, saved = pcall(function()
-		return store:GetAsync(tostring(player.UserId))
+	loadData(player)
+	player.CharacterAdded:Connect(function()
+		task.wait(0.5)
+		local p = DataManager.Get(player)
+		DataManager.EquipVillain(player, p.EquippedVillain)
 	end)
-	local data: SaveData
-	if ok and saved and typeof(saved) == "table" then
-		data = saved :: SaveData
-		-- migration: ensure fields
-		for k, v in defaultData do
-			if (data :: any)[k] == nil then
-				(data :: any)[k] = v
-			end
-		end
-	else
-		data = deepCopy(defaultData)
-	end
-	cache[player] = data
-	setupLeaderstats(player)
-	pushToClient(player)
-
-	-- apply morph on spawn
-	player.CharacterAdded:Connect(function(char)
-		task.wait(1)
-		local villainName = data.EquippedVillain
-		local v = Config.GetVillainByName(villainName)
-		if v then
-			local Morphs = require(ReplicatedStorage.Shared.Morphs)
-			Morphs.ApplyToCharacter(char, villainName, v.Palette)
-		end
-	end)
-	if player.Character then
-		task.wait(1)
-		local v = Config.GetVillainByName(data.EquippedVillain)
-		if v then
-			local Morphs = require(ReplicatedStorage.Shared.Morphs)
-			Morphs.ApplyToCharacter(player.Character, data.EquippedVillain, v.Palette)
-		end
-	end
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	local d = cache[player]
-	if d then
-		pcall(function()
-			store:SetAsync(tostring(player.UserId), d)
-		end)
-	end
-	cache[player] = nil
-	leaderstatsCache[player] = nil
-end)
-
--- autosave every 60s
-task.spawn(function()
-	while true do
-		task.wait(60)
-		for _, p in Players:GetPlayers() do
-			local d = cache[p]
-			if d then
-				pcall(function()
-					store:UpdateAsync(tostring(p.UserId), function(old)
-						return d
-					end)
-				end)
-			end
-		end
-	end
-end)
-
--- Rebirth handler
-task.wait(2) -- ensure Remotes exist
-local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local rebirthEv = remotes:WaitForChild("Rebirth") :: RemoteEvent
-rebirthEv.OnServerEvent:Connect(function(player: Player)
-	local d = getData(player)
-	if d.Heists < Config.Rebirth.HeistsRequired or d.Infamy < Config.Rebirth.InfamyRequired then
-		return
-	end
-	d.Rebirths += 1
-	d.Infamy = 0
-	-- keep Heists/Tokens but could reset Heists if you want harder: currently keep
-	-- ensure world reset to 1
-	syncLeaderstats(player)
-end)
-
-local equipEv = remotes:WaitForChild("EquipVillain") :: RemoteEvent
-equipEv.OnServerEvent:Connect(function(player: Player, villainName: string)
-	if typeof(villainName) ~= "string" then
-		return
-	end
-	local ok = Data.EquipVillain(player, villainName)
-	if ok then
-		local char = player.Character
-		if char then
-			local v = Config.GetVillainByName(villainName)
-			if v then
-				local Morphs = require(ReplicatedStorage.Shared.Morphs)
-				Morphs.ApplyToCharacter(char, villainName, v.Palette)
-			end
-		end
-	end
+	saveData(player)
+	sessionProfiles[player] = nil
 end)
 
 game:BindToClose(function()
-	for _, p in Players:GetPlayers() do
-		local d = cache[p]
-		if d then
-			pcall(function()
-				store:SetAsync(tostring(p.UserId), d)
-			end)
-		end
+	for _, player in Players:GetPlayers() do
+		saveData(player)
 	end
 end)
+
+;(_G :: any).VillainsData = DataManager
+;(shared :: any).VillainsData = DataManager
+return DataManager

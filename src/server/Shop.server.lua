@@ -1,142 +1,219 @@
 --!strict
+-- Shop, Pedestal Purchases, Crate Hatching, Rebirth Requests, and Codes Funnel
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Format = require(ReplicatedStorage.Shared.Format)
+local Morphs = require(ReplicatedStorage.Shared.Morphs)
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local buyVillainFn = remotes:WaitForChild("BuyVillain") :: RemoteFunction
-local buyHenchFn = remotes:WaitForChild("BuyHenchman") :: RemoteFunction
+local buyCrateFn = remotes:WaitForChild("BuyCrate") :: RemoteFunction
+local redeemCodeFn = remotes:WaitForChild("RedeemCode") :: RemoteFunction
+local requestRebirthFn = remotes:WaitForChild("RequestRebirth") :: RemoteFunction
+local equipVillainEv = remotes:WaitForChild("EquipVillain") :: RemoteEvent
+local noticeEv = remotes:WaitForChild("FloatingNotice") :: RemoteEvent
 
-local function owns(player: Player, villainName: string): boolean
-	local data = (_G :: any).VillainsData
-	return data and data.OwnsVillain(player, villainName) or false
+local function getDataManager()
+	return (_G :: any).VillainsData or (shared :: any).VillainsData
 end
 
-buyVillainFn.OnServerInvoke = function(player: Player, villainName: string)
-	if typeof(villainName) ~= "string" then
-		return false, "bad arg"
+local ShopManager = {}
+
+-- Buy Villain from Pedestal or UI
+function ShopManager.BuyVillain(player: Player, villainId: string): { success: boolean, message: string }
+	if typeof(villainId) ~= "string" then
+		return { success = false, message = "Invalid argument" }
 	end
-	local v = Config.GetVillainByName(villainName)
+
+	local v = Config.GetVillain(villainId)
 	if not v then
-		return false, "not found"
-	end
-	if owns(player, villainName) then
-		return false, "already owned"
+		return { success = false, message = "Villain not found" }
 	end
 
-	local data = (_G :: any).VillainsData
+	local data = getDataManager()
 	if not data then
-		return false, "no data"
-	end
-	local d = data.Get(player)
-
-	-- Robux villain
-	if v.Robux and v.CostHeists == nil then
-		-- prompt purchase; for now fail until product wired
-		return false, "Robux only — prompt not wired (id " .. tostring(v.Robux) .. ")"
+		return { success = false, message = "Data service unavailable" }
 	end
 
-	-- Heists cost
-	local cost = v.CostHeists
-	if cost == nil then
-		return false, "no cost"
-	end
-	if d.Heists < cost then
-		return false, "not enough Heists"
+	if data.OwnsVillain(player, villainId) then
+		data.EquipVillain(player, villainId)
+		return { success = true, message = "Equipped " .. v.name .. "!" }
 	end
 
-	-- world gate
-	local world = Config.GetWorld(v.World)
-	if world and d.Heists < world.GateHeists then
-		return false, "world locked"
+	local p = data.Get(player)
+
+	if v.costType == "Robux" then
+		noticeEv:FireClient(player, {
+			text = "Exclusive Robux Villain!",
+			color = Color3.fromRGB(240, 140, 40),
+		})
+		return { success = false, message = "Robux item — purchase via store" }
 	end
 
-	d.Heists -= cost
-	data.GiveVillain(player, villainName)
-	-- auto-equip if better?
-	if
-		v.PowerPerClick
-		and v.PowerPerClick
-			> (Config.GetVillainByName(d.EquippedVillain) and Config.GetVillainByName(d.EquippedVillain).PowerPerClick or 1)
-	then
-		data.EquipVillain(player, villainName)
-		-- morph applied in Data.EquipVillain
+	if p.Loot < v.cost then
+		noticeEv:FireClient(player, {
+			text = string.format("Requires %s Loot! (Have: %s)", Format.abbreviate(v.cost), Format.abbreviate(p.Loot)),
+			color = Color3.fromRGB(255, 80, 80),
+		})
+		return { success = false, message = "Not enough Loot" }
 	end
-	return true, "bought"
+
+	-- Deduct Loot and grant Villain
+	p.Loot -= v.cost
+	p.OwnedVillains[villainId] = true
+	p.EquippedVillain = villainId
+	data.Set(player, p)
+
+	-- Apply Character Morph immediately
+	Morphs.ApplyMorph(player, villainId)
+
+	noticeEv:FireClient(player, {
+		text = string.format("UNLOCKED %s! (+%s/Click)", v.name, Format.abbreviate(v.infamyPerClick)),
+		color = Color3.fromRGB(80, 255, 120),
+	})
+
+	return { success = true, message = "Unlocked " .. v.name .. "!" }
 end
 
-buyHenchFn.OnServerInvoke = function(player: Player, eggName: string)
-	if typeof(eggName) ~= "string" then
-		return false, "bad arg"
+buyVillainFn.OnServerInvoke = function(player: Player, villainId: string)
+	return ShopManager.BuyVillain(player, villainId)
+end
+
+equipVillainEv.OnServerEvent:Connect(function(player: Player, villainId: any)
+	if typeof(villainId) ~= "string" then return end
+	local data = getDataManager()
+	if data then
+		data.EquipVillain(player, villainId)
 	end
-	local egg = nil
-	for _, e in Config.HenchmenEggs do
-		if e.Name == eggName then
-			egg = e
+end)
+
+;(_G :: any).VillainsShop = ShopManager
+;(shared :: any).VillainsShop = ShopManager
+
+-- Buy Recruitment Crate (Server-Side Roll)
+buyCrateFn.OnServerInvoke = function(player: Player, crateId: string)
+	local crate: Config.Crate? = nil
+	for _, c in Config.Crates do
+		if c.id == crateId then
+			crate = c
 			break
 		end
 	end
-	if not egg then
-		return false, "egg not found"
+
+	if not crate then
+		return { success = false, message = "Crate not found" }
 	end
 
-	local data = (_G :: any).VillainsData
+	local data = getDataManager()
 	if not data then
-		return false, "no data"
-	end
-	local d = data.Get(player)
-
-	-- Robux egg
-	if egg.Robux then
-		return false, "Robux egg " .. tostring(egg.Robux)
+		return { success = false, message = "Data unavailable" }
 	end
 
-	if egg.CostHeists then
-		if d.Heists < egg.CostHeists then
-			return false, "not enough Heists"
+	local p = data.Get(player)
+	if p.Loot < crate.cost then
+		return { success = false, message = "Not enough Loot" }
+	end
+
+	p.Loot -= crate.cost
+
+	-- Server-Side Weighted RNG
+	local roll = math.random() * 100
+	local cumulative = 0
+	local chosenHenchmanId = "alley_cat"
+
+	for hId, weight in crate.weights do
+		cumulative += weight
+		if roll <= cumulative then
+			chosenHenchmanId = hId
+			break
 		end
-		d.Heists -= egg.CostHeists
-	elseif egg.CostTokens then
-		if d.Tokens < egg.CostTokens then
-			return false, "not enough Tokens"
+	end
+
+	table.insert(p.Henchmen, chosenHenchmanId)
+
+	-- Auto-equip up to slot limit
+	local maxSlots = player:GetAttribute("Pass_+3 Henchmen") == true and 6 or 3
+	if #p.EquippedHenchmen < maxSlots then
+		table.insert(p.EquippedHenchmen, chosenHenchmanId)
+	end
+
+	data.Set(player, p)
+
+	local henchObj = nil
+	for _, h in Config.Henchmen do
+		if h.id == chosenHenchmanId then
+			henchObj = h
+			break
 		end
-		d.Tokens -= egg.CostTokens
 	end
 
-	-- random hatch
-	local pool = egg.Henchmen
-	local pick = pool[math.random(1, #pool)]
-	table.insert(d.OwnedHenchmen, pick.Name)
-	-- auto-equip up to limit
-	local limit = 3
-	if player:GetAttribute("Pass_+3 Henchmen") == true then
-		limit = 6
-	end
-	if #d.EquippedHenchmen < limit then
-		table.insert(d.EquippedHenchmen, pick.Name)
-	end
-
-	-- sync
-	local Data = data
-	Data.Set(player, d)
-	return true, pick.Name
+	return { success = true, henchman = henchObj }
 end
 
--- Marketplace pass handling (wire after publishing)
-MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, id: number, purchased: boolean)
-	if not purchased then
-		return
+-- Redeem Code (Spec Revision 2 Section C.4)
+redeemCodeFn.OnServerInvoke = function(player: Player, codeStr: string)
+	if typeof(codeStr) ~= "string" then
+		return { success = false, message = "Invalid code format" }
 	end
-	for _, gp in Config.Gamepasses do
-		if gp.Id == id then
-			player:SetAttribute("Pass_" .. gp.Name, true)
+
+	local cleanCode = string.upper(string.gsub(codeStr, "%s+", ""))
+	local codeReward = Config.Codes[cleanCode]
+
+	if not codeReward then
+		return { success = false, message = "Code does not exist!" }
+	end
+
+	local data = getDataManager()
+	if not data then
+		return { success = false, message = "Data unavailable" }
+	end
+
+	local p = data.Get(player)
+	if p.RedeemedCodes[cleanCode] then
+		return { success = false, message = "Code already redeemed!" }
+	end
+
+	p.RedeemedCodes[cleanCode] = true
+	p.Loot += codeReward.loot
+	p.Heat += codeReward.heat
+	data.Set(player, p)
+
+	return { success = true, message = "Claimed: " .. codeReward.label }
+end
+
+-- Rebirth Request
+requestRebirthFn.OnServerInvoke = function(player: Player)
+	local data = getDataManager()
+	if not data then
+		return { success = false, message = "Data unavailable" }
+	end
+
+	local success, msg = data.Rebirth(player)
+	local p = data.Get(player)
+
+	local noticeEv = remotes:FindFirstChild("FloatingNotice") :: RemoteEvent?
+	if noticeEv then
+		if success then
+			noticeEv:FireClient(player, {
+				text = string.format("REBIRTH %d UNLOCKED! (+2x Multiplier)", p.Rebirths),
+				color = Color3.fromRGB(80, 255, 120),
+			})
+		else
+			noticeEv:FireClient(player, {
+				text = msg or "Cannot rebirth yet!",
+				color = Color3.fromRGB(255, 80, 80),
+			})
 		end
 	end
-	-- Robux villains: grant if id matches
-	for _, v in Config.Villains do
-		if v.Robux and v.Name then
-			-- you need to create DeveloperProducts for each Robux villain and map here
-		end
-	end
-end)
+
+	return {
+		success = success,
+		message = msg,
+		rapSheet = p.Rebirths,
+		multiplier = Config.Rebirth.multiplier(p.Rebirths),
+	}
+end
+
+print("✓ Villains Evolved Shop & Codes initialized.")

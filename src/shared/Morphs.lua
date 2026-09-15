@@ -193,10 +193,6 @@ function Morphs.BuildVillainModel(villainName: string, paletteName: string): Mod
 	root.Parent = model
 	model.PrimaryPart = root
 
-	local hum = Instance.new("Humanoid")
-	hum.Name = "Humanoid"
-	hum.Parent = model
-
 	-- Torso block
 	local torso = makePart("Torso", Vector3.new(2, 2, 1), CFrame.new(0, 0, 0), pal.Primary, model)
 	local weld = Instance.new("WeldConstraint")
@@ -353,4 +349,166 @@ function Morphs.PreviewInWorkspace(villainName: string, paletteName: string)
 	return m
 end
 
+function Morphs.ApplyMorph(player: Player, villainId: string)
+	local char = player.Character
+	if not char then return end
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local Config = require(ReplicatedStorage.Shared.Config)
+	local Format = require(ReplicatedStorage.Shared.Format)
+	local v = Config.GetVillain(villainId)
+	if not v then return end
+
+	-- Clean up previous villain accessories/auras/titles
+	for _, c in char:GetChildren() do
+		if c.Name == "VillainCape" or c.Name == "VillainTitle" or c.Name == "VillainAccessory" then
+			c:Destroy()
+		end
+		-- Remove existing standard clothing so villain colors and costume are visible
+		if c:IsA("Shirt") or c:IsA("Pants") or c:IsA("ShirtGraphic") then
+			c:Destroy()
+		end
+	end
+
+	local torsoPart = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") :: BasePart?
+	local headPart = char:FindFirstChild("Head") :: BasePart?
+	local hrp = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+
+	-- Apply BodyColors
+	local bodyColors = char:FindFirstChildOfClass("BodyColors")
+	if not bodyColors then
+		bodyColors = Instance.new("BodyColors")
+		bodyColors.Parent = char
+	end
+
+	local bColor = v.morph.bodyColor or Color3.fromRGB(90, 90, 90)
+	local hColor = v.morph.headColor or bColor
+	local tColor = v.morph.torsoColor or bColor
+
+	bodyColors.HeadColor3 = hColor
+	bodyColors.TorsoColor3 = tColor
+	bodyColors.LeftArmColor3 = bColor
+	bodyColors.RightArmColor3 = bColor
+	bodyColors.LeftLegColor3 = tColor
+	bodyColors.RightLegColor3 = tColor
+
+	-- Direct Part Color Tinting & Material
+	for _, part in char:GetChildren() do
+		if part:IsA("BasePart") then
+			if part.Name == "Head" then
+				part.Color = hColor
+				part.Material = Enum.Material.SmoothPlastic
+			elseif part.Name == "UpperTorso" or part.Name == "LowerTorso" or part.Name == "Torso" then
+				part.Color = tColor
+				part.Material = Enum.Material.SmoothPlastic
+			elseif part.Name ~= "HumanoidRootPart" then
+				part.Color = bColor
+				part.Material = Enum.Material.SmoothPlastic
+			end
+		end
+	end
+
+	-- Avatar Scaling (R15 scale properties)
+	local scale = v.morph.scale or 1.0
+	local scales = { "BodyHeightScale", "BodyWidthScale", "BodyDepthScale", "HeadScale" }
+	for _, sName in scales do
+		local val = humanoid:FindFirstChild(sName) :: NumberValue?
+		if val then
+			val.Value = scale
+		end
+	end
+
+	-- Procedural Villain Cape (Screenshot 1 & 2 aesthetic: flowing dark cape)
+	if torsoPart then
+		local cape = Instance.new("Part")
+		cape.Name = "VillainCape"
+		cape.Size = Vector3.new(2.4 * scale, 3.4 * scale, 0.15)
+		cape.Color = tColor
+		cape.Material = Enum.Material.Fabric
+		cape.CanCollide = false
+		cape.Massless = true
+		cape.Parent = char
+
+		local cframeOffset = CFrame.new(0, -0.2 * scale, 0.7 * scale) * CFrame.Angles(math.rad(12), 0, 0)
+		cape.CFrame = torsoPart.CFrame * cframeOffset
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = torsoPart
+		weld.Part1 = cape
+		weld.Parent = cape
+
+		-- Cape Gold/Accent Trim
+		local trim = Instance.new("Part")
+		trim.Name = "VillainAccessory"
+		trim.Size = Vector3.new(2.5 * scale, 0.3 * scale, 0.2)
+		trim.Color = v.morph.auraColor or Color3.fromRGB(240, 200, 50)
+		trim.Material = Enum.Material.Neon
+		trim.CanCollide = false
+		trim.Massless = true
+		trim.Parent = char
+		trim.CFrame = cape.CFrame * CFrame.new(0, 1.6 * scale, 0)
+
+		local trimWeld = Instance.new("WeldConstraint")
+		trimWeld.Part0 = cape
+		trimWeld.Part1 = trim
+		trimWeld.Parent = trim
+	end
+
+	-- Particle Aura on HumanoidRootPart
+	if hrp then
+		local oldAura = hrp:FindFirstChild("VillainAura")
+		if oldAura then oldAura:Destroy() end
+
+		if v.morph.auraColor then
+			local pe = Instance.new("ParticleEmitter")
+			pe.Name = "VillainAura"
+			pe.Color = ColorSequence.new(v.morph.auraColor)
+			pe.LightEmission = 0.7
+			pe.Size = NumberSequence.new(1.2 * scale, 0)
+			pe.Rate = 18
+			pe.Lifetime = NumberRange.new(0.6, 1.2)
+			pe.Speed = NumberRange.new(2, 4)
+			pe.SpreadAngle = Vector2.new(180, 180)
+			pe.Parent = hrp
+		end
+	end
+
+	-- Overhead Title Billboard
+	if headPart then
+		local oldTitle = headPart:FindFirstChild("VillainTitle")
+		if oldTitle then oldTitle:Destroy() end
+
+		local titleBb = Instance.new("BillboardGui")
+		titleBb.Name = "VillainTitle"
+		titleBb.Size = UDim2.fromScale(6, 1.5)
+		titleBb.StudsOffset = Vector3.new(0, 2.5 * scale, 0)
+		titleBb.AlwaysOnTop = true
+		titleBb.Parent = headPart
+
+		local tLabel = Instance.new("TextLabel")
+		tLabel.Size = UDim2.fromScale(1, 0.6)
+		tLabel.BackgroundTransparency = 1
+		tLabel.Text = string.format("【 %s 】", v.name)
+		tLabel.TextColor3 = v.morph.auraColor or Color3.fromRGB(255, 215, 0)
+		tLabel.Font = Enum.Font.GothamBold
+		tLabel.TextScaled = true
+		tLabel.Parent = titleBb
+
+		local subLabel = Instance.new("TextLabel")
+		subLabel.Size = UDim2.fromScale(1, 0.4)
+		subLabel.Position = UDim2.fromScale(0, 0.6)
+		subLabel.BackgroundTransparency = 1
+		subLabel.Text = string.format("+%s/Click", Format.abbreviate(v.infamyPerClick))
+		subLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		subLabel.Font = Enum.Font.GothamBold
+		subLabel.TextScaled = true
+		subLabel.Parent = titleBb
+	end
+end
+
+;(_G :: any).VillainsMorphs = Morphs
+;(shared :: any).VillainsMorphs = Morphs
 return Morphs
+

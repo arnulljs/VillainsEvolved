@@ -4,3 +4,11 @@ sourcemap.json
 *.rbxlx.lock
 .DS_Store
 aftman.lock
+
+# Specs, plans, walkthroughs, and markdown documentation
+*.md
+!README.md
+docs/
+plans/
+specs/
+walkthroughs/

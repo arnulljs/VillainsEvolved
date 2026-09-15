@@ -1,168 +1,156 @@
 --!strict
--- Click to gain Infamy + auto-pad loop
-
+-- Power Engine: Uncapped Infamy Growth, Multiplier Stack, and Anti-Exploit Rate Limiting
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Format = require(ReplicatedStorage.Shared.Format)
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local trainEv = remotes:WaitForChild("Train") :: RemoteEvent
+local noticeEv = remotes:WaitForChild("FloatingNotice") :: RemoteEvent
 
-local lastClick: { [Player]: number } = {}
+type RateTrack = {
+	lastSecond: number,
+	clicksThisSecond: number,
+}
+local clickTrackers: { [Player]: RateTrack } = {}
 
-local function getHenchmenMult(player: Player): number
-	local data = (_G :: any).VillainsData
-	if not data then
-		return 1
-	end
-	local d = data.Get(player)
-	local mult = 1
-	for _, hName in d.EquippedHenchmen do
-		for _, egg in Config.HenchmenEggs do
-			for _, h in egg.Henchmen do
-				if h.Name == hName and h.Mult then
-					mult *= h.Mult
+local function getDataManager()
+	return (_G :: any).VillainsData
+end
+
+local function computeMultiplierStack(player: Player): number
+	local data = getDataManager()
+	if not data then return 1 end
+	local p = data.Get(player)
+
+	-- 1. Base villain infamy
+	local v = Config.GetVillain(p.EquippedVillain)
+	local base = 1
+	if v then
+		if v.id == "mad_titan_d1" then
+			local best = 1
+			for ownedId, _ in p.OwnedVillains do
+				local ov = Config.GetVillain(ownedId)
+				if ov and ov.id ~= "mad_titan_d1" and ov.infamyPerClick > best then
+					best = ov.infamyPerClick
 				end
 			end
+			base = best * 2
+		else
+			base = math.max(1, v.infamyPerClick)
 		end
 	end
-	return mult
-end
 
-local function hasPass(player: Player, passName: string): boolean
-	-- TODO: wire MarketplaceService:UserOwnsGamePassAsync after publishing passes
-	-- For now checks attribute set by Shop when Robux granted
-	return player:GetAttribute("Pass_" .. passName) == true
-end
-
-local function getPowerPerClick(player: Player): number
-	local data = (_G :: any).VillainsData
-	if not data then
-		return Config.Training.ClickBase
-	end
-	local d = data.Get(player)
-	local villainName = d.EquippedVillain
-	local v = Config.GetVillainByName(villainName)
-	local base = 1
-	if v and v.PowerPerClick then
-		base = v.PowerPerClick
-	elseif v and v.IsBestMultiplier then
-		-- find best owned non-robux power
-		local best = 1
-		for _, owned in d.OwnedVillains do
-			local ov = Config.GetVillainByName(owned)
-			if ov and ov.PowerPerClick and ov.PowerPerClick > best then
-				best = ov.PowerPerClick
+	-- 2. Henchmen multiplier
+	local henchMult = 0
+	for _, hId in p.EquippedHenchmen do
+		for _, h in Config.Henchmen do
+			if h.id == hId then
+				henchMult += h.multipliers.infamy
+				break
 			end
 		end
-		base = best * 2
 	end
-	local henchMult = getHenchmenMult(player)
-	local rebirthMult = 1 + (d.Rebirths * Config.Rebirth.MultiplierPerRebirth)
-	local total = base * henchMult * rebirthMult
-	if hasPass(player, "2x Infamy") then
-		total *= 2
+
+	-- 3. Rebirth multiplier (+2x per rebirth, matching live screenshots)
+	local rebirthMult = Config.Rebirth.multiplier(p.Rebirths)
+
+	-- 4. Gamepasses & bonuses
+	local passMult = 1
+	if player:GetAttribute("Pass_2x Infamy") == true then
+		passMult *= 2
 	end
-	return math.floor(total)
+	if player:GetAttribute("Pass_VIP Kingpin") == true then
+		passMult *= 1.5
+	end
+	if p.FirstPurchaseBonus then
+		passMult *= 1.25
+	end
+
+	return math.floor(base * (1 + henchMult) * rebirthMult * passMult)
 end
 
-trainEv.OnServerEvent:Connect(function(player: Player)
-	local now = os.clock()
-	local last = lastClick[player] or 0
-	if now - last < Config.Training.ClickCooldown then
+trainEv.OnServerEvent:Connect(function(player: Player, payload: any)
+	local count = 1
+	if typeof(payload) == "table" and typeof(payload.count) == "number" then
+		count = math.clamp(math.floor(payload.count), 1, 10)
+	end
+
+	-- Rate limiting: Max 25 clicks per second
+	local now = os.time()
+	local track = clickTrackers[player]
+	if not track or track.lastSecond ~= now then
+		track = { lastSecond = now, clicksThisSecond = 0 }
+		clickTrackers[player] = track
+	end
+
+	if track.clicksThisSecond + count > 25 then
 		return
 	end
-	lastClick[player] = now
+	track.clicksThisSecond += count
 
-	local amount = getPowerPerClick(player)
-	local data = (_G :: any).VillainsData
-	if data then
-		data.AddInfamy(player, amount)
+	local gainPerClick = computeMultiplierStack(player)
+	local totalGain = gainPerClick * count
+
+	local data = getDataManager()
+	if not data then return end
+
+	-- Uncapped: Infamy always increases!
+	data.AddInfamy(player, totalGain)
+
+	-- Direct punch hit on dungeon enemies if player is inside a stage
+	local dungeon = (_G :: any).VillainsDungeon or (shared :: any).VillainsDungeon
+	if dungeon and dungeon.OnPlayerPunch then
+		dungeon.OnPlayerPunch(player)
 	end
+
+	noticeEv:FireClient(player, {
+		text = "+" .. Format.abbreviate(totalGain) .. " Infamy",
+		color = Color3.fromRGB(190, 60, 230),
+	})
 end)
 
--- Auto-train pad in Workspace.TrainingPad (create if missing)
-local function ensureTrainingPad()
-	local pad = Workspace:FindFirstChild("TrainingPad")
-	if not pad then
-		pad = Instance.new("Part")
-		pad.Name = "TrainingPad"
-		pad.Size = Vector3.new(20, 1, 20)
-		pad.Position = Vector3.new(0, 0.5, 0)
-		pad.Anchored = true
-		pad.Color = Color3.fromRGB(255, 0, 0)
-		pad.Material = Enum.Material.Neon
-		pad.Parent = Workspace
-		local sg = Instance.new("SurfaceGui")
-		sg.Face = Enum.NormalId.Top
-		sg.Parent = pad
-		local tl = Instance.new("TextLabel")
-		tl.Size = UDim2.fromScale(1, 1)
-		tl.BackgroundTransparency = 1
-		tl.Text = "TRAINING PAD — auto Infamy"
-		tl.TextScaled = true
-		tl.TextColor3 = Color3.fromRGB(255, 255, 255)
-		tl.Font = Enum.Font.GothamBold
-		tl.Parent = sg
-	end
-	return pad :: BasePart
-end
+-- Training Station auto-gain: ticks every second for players standing on stations
+task.spawn(function()
+	while true do
+		task.wait(1)
+		local data = getDataManager()
+		if not data then continue end
 
-local pad = ensureTrainingPad()
-local onPad: { [Player]: boolean } = {}
+		for _, player in Players:GetPlayers() do
+			local char = player.Character
+			if not char then continue end
+			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not root then continue end
 
--- touch tracking ponytail: GetTouchingParts is flaky, use Region3 via Touched events
-pad.Touched:Connect(function(hit)
-	local plr = Players:GetPlayerFromCharacter(hit.Parent)
-	if plr then
-		onPad[plr] = true
-	end
-end)
-pad.TouchEnded:Connect(function(hit)
-	local plr = Players:GetPlayerFromCharacter(hit.Parent)
-	if plr then
-		onPad[plr] = false
-	end
-end)
-
--- fallback: distance check every second for mobile
-task
-	.spawn(function()
-		while true do
-			task.wait(1)
-			for _, plr in Players:GetPlayers() do
-				local char = plr.Character
-				local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-				if hrp then
-					local dist = (hrp.Position - pad.Position).Magnitude
-					onPad[plr] = dist < 15
-				end
-			end
-			for plr, active in onPad do
-				if active then
-					local amount = getPowerPerClick(plr) * Config.Training.AutoPadPerSecond
-					-- if Auto-Train pass, also outside pad via Power.server? handled here as bonus ticks even outside pad
-					local data = (_G :: any).VillainsData
-					if data then
-						data.AddInfamy(plr, amount)
-					end
-				end
-			end
-			-- grant Auto-Train pass users Infamy even outside pad (2x pad rate /2 = trickle)
-			for _, plr in Players:GetPlayers() do
-				if hasPass(plr, "Auto-Train") and not onPad[plr] then
-					local amount = math.floor(getPowerPerClick(plr) * 2)
-					local data = (_G :: any).VillainsData
-					if data then
-						data.AddInfamy(plr, amount)
+			local p = data.Get(player)
+			local stationsFolder = Workspace:FindFirstChild("TrainingStations")
+			if stationsFolder then
+				for _, station in stationsFolder:GetChildren() do
+					if station:IsA("BasePart") then
+						local dist = (station.Position - root.Position).Magnitude
+						if dist <= (station.Size.X / 2) + 2 then
+							local mult = station:GetAttribute("Multiplier") or 1
+							local minRebirth = station:GetAttribute("MinRebirth") or 0
+							if p.Rebirths >= minRebirth then
+								local gain = computeMultiplierStack(player) * mult
+								data.AddInfamy(player, gain)
+							end
+						end
 					end
 				end
 			end
 		end
-	end)
-	-- Expose for other scripts
-	(_G :: any)
-	.GetPowerPerClick =
-	getPowerPerClick
+	end
+end)
+
+local PowerEngine = {
+	ComputeMultiplierStack = computeMultiplierStack,
+}
+;(_G :: any).VillainsPower = PowerEngine
+;(shared :: any).VillainsPower = PowerEngine
+
+print("✓ Villains Evolved Uncapped Power Engine initialized.")

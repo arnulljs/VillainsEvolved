@@ -16,6 +16,8 @@ export type World = {
 	GateHeists: number,
 	GateInfamy: number,
 	Color: Color3,
+	Position: Vector3,
+	TrainingMultiplier: number,
 }
 
 export type PlayerData = {
